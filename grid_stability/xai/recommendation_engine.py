@@ -47,11 +47,6 @@ RECOMMENDATION_RULES: dict = {
         "severity": "MEDIUM",
     },
     # Extended rules for fuller UCI feature coverage
-    ("tau2", "high"): {
-        "cause": "Secondary participant response delay detected",
-        "action": "Check demand-response signalling for node 2",
-        "severity": "MEDIUM",
-    },
     ("p1", "high"): {
         "cause": "Excess power injection at producer node 1",
         "action": "Curtail generation or activate storage to absorb surplus",
@@ -62,10 +57,35 @@ RECOMMENDATION_RULES: dict = {
         "action": "Dampen price signal for producer 1 to stabilise oscillation",
         "severity": "MEDIUM",
     },
+    ("tau2", "high"): {
+        "cause": "Secondary participant response delay — node 2 slow to react",
+        "action": "Review demand-response contract at node 2",
+        "severity": "HIGH"
+    },
+    ("tau3", "high"): {
+        "cause": "Tertiary participant response delay — node 3 slow to react", 
+        "action": "Review demand-response contract at node 3",
+        "severity": "MEDIUM"
+    },
+    ("tau4", "high"): {
+        "cause": "Quaternary participant response delay detected",
+        "action": "Inspect control signal at node 4",
+        "severity": "MEDIUM"
+    },
+    ("p2", "high"): {
+        "cause": "Excess power injection at producer node 2",
+        "action": "Reduce generation at node 2 or redistribute load",
+        "severity": "HIGH"
+    },
+    ("p3", "high"): {
+        "cause": "Excess power injection at producer node 3",
+        "action": "Reduce generation at node 3 or redistribute load",
+        "severity": "MEDIUM"
+    },
     ("g2", "high"): {
-        "cause": "High gamma coefficient — aggressive producer response at node 2",
-        "action": "Dampen price signal for producer 2 to stabilise oscillation",
-        "severity": "MEDIUM",
+        "cause": "Aggressive gamma response at node 2 causing oscillation",
+        "action": "Activate voltage regulator or reduce injection rate",
+        "severity": "HIGH"
     },
 }
 

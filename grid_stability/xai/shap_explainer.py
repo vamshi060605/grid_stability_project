@@ -64,16 +64,19 @@ def explain_prediction(
     }
 
     try:
-        explainer = shap.TreeExplainer(model)
-        raw = explainer.shap_values(X_instance)
+        explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        raw = explainer.shap_values(X_instance, check_additivity=False)
 
-        # shap_values is a list [class0_vals, class1_vals] for binary classifiers
+        # shap_values is a list [class0_vals, class1_vals] for binary classifiers in older versions
         if isinstance(raw, list):
             sv = raw[1]  # Unstable class SHAP values
+            sv_1d = sv[0] if getattr(sv, 'ndim', 1) == 2 else sv
+        elif getattr(raw, 'ndim', 0) == 3:
+            # SHAP 0.45+ returns 3D array: (samples, features, classes)
+            sv_1d = raw[0, :, 1]
         else:
             sv = raw
-
-        sv_1d = sv[0] if sv.ndim == 2 else sv
+            sv_1d = sv[0] if getattr(sv, 'ndim', 1) == 2 else sv
         result["shap_values"] = sv_1d
 
         feature_names = X_instance.columns.tolist()

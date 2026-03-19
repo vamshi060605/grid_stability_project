@@ -136,9 +136,9 @@ def _build_feature_vector(vsi, rocov, thermal, fault_imp, scaler, feature_names)
     
     # Base stable profile (averages from UCI training data stable class)
     base_stable = {
-        "tau1": 4.39, "tau2": 4.35, "tau3": 4.39, "tau4": 4.38,
-        "p1": 3.74, "p2": -1.25, "p3": -1.25, "p4": -1.24,
-        "g1": 0.45, "g2": 0.45, "g3": 0.44, "g4": 0.45,
+        "tau1": 2.68, "tau2": 6.89, "tau3": 1.73, "tau4": 4.43,
+        "p1": 4.39, "p2": -1.31, "p3": -1.55, "p4": -1.53,
+        "g1": 0.88, "g2": 0.13, "g3": 0.43, "g4": 0.63,
     }
 
     n_features = scaler.n_features_in_
@@ -353,8 +353,8 @@ def main():
 
     vsi_val = st.sidebar.slider("VSI (Voltage Stability Index)", 0.5, 1.2, 1.0, 0.01,
                                  help="Per-unit bus voltage. Critical below 0.85.")
-    rocov_val = st.sidebar.slider("RoCoV (Rate of Change of Voltage)", 0.0, 1.0, 0.1, 0.01)
-    thermal_val = st.sidebar.slider("Thermal Stress", 0.0, 1.0, 0.3, 0.01,
+    rocov_val = st.sidebar.slider("RoCoV (Rate of Change of Voltage)", 0.0, 1.0, 0.0, 0.01)
+    thermal_val = st.sidebar.slider("Thermal Stress", 0.0, 1.0, 0.2, 0.01,
                                      help="Line loading fraction. Critical above 0.95.")
     fault_imp_val = st.sidebar.slider("Fault Impedance (Ω proxy)", 0.0, 10.0, 5.0, 0.1)
 
@@ -363,8 +363,8 @@ def main():
         st.sidebar.warning("VSI at minimum — set above 0.5 for meaningful predictions.")
 
     # All-defaults info
-    if (abs(vsi_val - 1.0) < 0.01 and abs(rocov_val - 0.1) < 0.01
-            and abs(thermal_val - 0.3) < 0.01 and abs(fault_imp_val - 5.0) < 0.01):
+    if (abs(vsi_val - 1.0) < 0.01 and abs(rocov_val - 0.0) < 0.01
+            and abs(thermal_val - 0.2) < 0.01 and abs(fault_imp_val - 5.0) < 0.01):
         st.info("ℹ️ All parameters at default — inject a fault to see instability detection.")
 
     # Handle fault injection button overrides
