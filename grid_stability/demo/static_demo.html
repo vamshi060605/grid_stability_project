@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grid Stability Demo — Static Backup</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d26;
+    --border: #2d3148;
+    --text: #e8eaf0;
+    --muted: #8b90a8;
+    --green: #2ecc71;
+    --red: #ff4b4b;
+    --orange: #ffa500;
+    --yellow: #ffd700;
+    --blue: #4b8bff;
+    --accent: #5b6af5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 20px; font-weight: 700; }
+  header span { color: var(--muted); font-size: 13px; }
+  .badge {
+    background: var(--accent);
+    color: white;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+  .tabs { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 10px 20px; cursor: pointer;
+    color: var(--muted); border-bottom: 2px solid transparent;
+    font-weight: 500; transition: all 0.2s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .card h3 { font-size: 13px; color: var(--muted); text-transform: uppercase;
+              letter-spacing: 0.06em; margin-bottom: 12px; }
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 20px; border-radius: 8px; font-size: 20px; font-weight: 800;
+    margin-bottom: 16px;
+  }
+  .stable { background: rgba(46,204,113,0.12); color: var(--green); border: 1px solid var(--green); }
+  .unstable { background: rgba(255,75,75,0.12); color: var(--red); border: 1px solid var(--red); }
+  .metric { margin-bottom: 12px; }
+  .metric label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .metric .value { font-size: 22px; font-weight: 700; }
+  .progress-bar {
+    height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;
+    margin-top: 6px;
+  }
+  .progress-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+  .rec-card {
+    border-left: 4px solid;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .rec-card .severity { font-weight: 700; font-size: 12px; text-transform: uppercase; }
+  .rec-card .feature { font-size: 15px; font-weight: 600; margin: 4px 0 10px; }
+  .rec-card .row { display: flex; margin-bottom: 6px; gap: 8px; }
+  .rec-card .lbl { color: var(--muted); min-width: 60px; font-size: 12px; }
+  .rec-card .val { font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase;
+       letter-spacing: 0.06em; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  tr:last-child td { border-bottom: none; }
+  .scenario-btn {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); cursor: pointer;
+    font-size: 13px; transition: all 0.2s;
+  }
+  .scenario-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .scenario-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .scenarios { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .physics-banner {
+    background: rgba(255,215,0,0.08);
+    border: 1px solid var(--yellow);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    display: none;
+    color: var(--yellow);
+  }
+  .physics-banner.visible { display: block; }
+  canvas { max-height: 280px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:24px">⚡</span>
+  <div>
+    <h1>Grid Stability Fault Detection</h1>
+    <span>SHAP-Driven Corrective Recommendation Engine — Static Demo Backup</span>
+  </div>
+  <span class="badge">OFFLINE DEMO</span>
+</header>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('monitor')">📡 Live Monitor</div>
+    <div class="tab" onclick="switchTab('explainer')">🔍 Fault Explainer</div>
+    <div class="tab" onclick="switchTab('comparison')">📊 Model Comparison</div>
+  </div>
+
+  <!-- PANEL 1: MONITOR -->
+  <div class="panel active" id="panel-monitor">
+    <div class="scenarios">
+      <strong style="line-height:32px;color:var(--muted)">Scenario:</strong>
+      <button class="scenario-btn active" onclick="loadScenario('stable')">🟢 Stable (Default)</button>
+      <button class="scenario-btn" onclick="loadScenario('line_outage')">⚡ Line Outage</button>
+      <button class="scenario-btn" onclick="loadScenario('load_surge')">📈 Load Surge</button>
+      <button class="scenario-btn" onclick="loadScenario('generator_trip')">🔌 Generator Trip</button>
+      <button class="scenario-btn" onclick="loadScenario('high_impedance')">🔶 Hi-Z Fault</button>
+    </div>
+
+    <div class="physics-banner" id="physics-banner">
+      ⚠️ <strong>Physics rule override — ML prediction bypassed</strong>
+      <span id="physics-msg"></span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Prediction</h3>
+        <div class="status-badge" id="status-badge">🟢 STABLE</div>
+        <div class="metric">
+          <label>RF Unstable Probability</label>
+          <div class="value" id="rf-prob">12.3%</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="rf-bar" style="width:12.3%;background:var(--green)"></div>
+          </div>
+        </div>
+        <div class="metric">
+          <label>XGB Unstable Probability</label>
+          <div class="value" id="xgb-prob">10.8%</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="xgb-bar" style="width:10.8%;background:var(--green)"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Grid Parameters</h3>
+        <div class="metric">
+          <label>VSI (Voltage Stability Index)</label>
+          <div class="value" id="vsi-val">1.000</div>
+        </div>
+        <div class="metric">
+          <label>RoCoV (Rate of Change)</label>
+          <div class="value" id="rocov-val">0.100</div>
+        </div>
+        <div class="metric">
+          <label>Thermal Stress</label>
+          <div class="value" id="thermal-val">0.300</div>
+        </div>
+        <div class="metric">
+          <label>Fault Impedance (Ω)</label>
+          <div class="value" id="fimp-val">5.00</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 2: EXPLAINER -->
+  <div class="panel" id="panel-explainer">
+    <div class="grid">
+      <div class="card" style="grid-column: span 2">
+        <h3>SHAP Feature Contributions (Top 5)</h3>
+        <canvas id="shap-chart"></canvas>
+      </div>
+    </div>
+    <br>
+    <h3 style="margin-bottom:14px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em">
+      Corrective Recommendations
+    </h3>
+    <div id="rec-cards"></div>
+  </div>
+
+  <!-- PANEL 3: MODEL COMPARISON -->
+  <div class="panel" id="panel-comparison">
+    <div class="grid">
+      <div class="card">
+        <h3>Model Metrics Comparison</h3>
+        <table>
+          <thead><tr><th>Metric</th><th>Random Forest</th><th>XGBoost</th></tr></thead>
+          <tbody>
+            <tr><td>Accuracy</td><td>0.9742</td><td>0.9781</td></tr>
+            <tr><td>F1 (weighted)</td><td>0.9741</td><td>0.9780</td></tr>
+            <tr><td>AUC-ROC</td><td>0.9963</td><td>0.9978</td></tr>
+            <tr><td>Cohen's Kappa</td><td>0.9484</td><td>0.9562</td></tr>
+            <tr><td>MCC</td><td>0.9485</td><td>0.9562</td></tr>
+            <tr><td>Latency (mean)</td><td>2.1 ms</td><td>0.8 ms</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>AUC-ROC Curves</h3>
+        <canvas id="roc-chart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Scenario data ──────────────────────────────────────────────────────────
+const scenarios = {
+  stable: {
+    label: "STABLE", rfProb: 12.3, xgbProb: 10.8,
+    vsi: 1.000, rocov: 0.100, thermal: 0.300, fimp: 5.00,
+    physics: null,
+    shap: { tau1: -0.31, g1: -0.22, p1: 0.08, g2: -0.18, tau2: 0.05 },
+    recs: [],
+  },
+  line_outage: {
+    label: "UNSTABLE", rfProb: 91.2, xgbProb: 93.4,
+    vsi: 0.87, rocov: 0.62, thermal: 0.78, fimp: 1.20,
+    physics: null,
+    shap: { tau1: 0.58, g1: 0.42, p1: 0.35, g2: 0.28, tau2: -0.12 },
+    recs: [
+      { severity: "HIGH", color: "#FFA500", feature: "tau1",
+        cause: "Participant response time too slow", action: "Review demand response contract at this node",
+        shap: "+0.5800", conf: "91.2% (High)" },
+      { severity: "HIGH", color: "#FFA500", feature: "g1",
+        cause: "High gamma coefficient — aggressive producer response",
+        action: "Dampen price signal for producer 1 to stabilise oscillation",
+        shap: "+0.4200", conf: "91.2% (High)" },
+    ],
+  },
+  load_surge: {
+    label: "UNSTABLE", rfProb: 88.7, xgbProb: 90.1,
+    vsi: 0.91, rocov: 0.74, thermal: 0.82, fimp: 2.30,
+    physics: null,
+    shap: { p1: 0.61, g2: 0.44, tau1: 0.29, tau2: 0.18, g1: -0.09 },
+    recs: [
+      { severity: "HIGH", color: "#FFA500", feature: "p1",
+        cause: "Excess power injection at producer node 1",
+        action: "Curtail generation or activate storage to absorb surplus",
+        shap: "+0.6100", conf: "88.7% (High)" },
+    ],
+  },
+  generator_trip: {
+    label: "UNSTABLE", rfProb: 85.3, xgbProb: 87.6,
+    vsi: 0.88, rocov: 0.58, thermal: 0.69, fimp: 3.10,
+    physics: null,
+    shap: { g1: 0.52, tau1: 0.40, p1: 0.31, g2: 0.20, tau2: -0.10 },
+    recs: [
+      { severity: "MEDIUM", color: "#FFD700", feature: "g1",
+        cause: "High gamma coefficient — aggressive producer response",
+        action: "Dampen price signal for producer 1 to stabilise oscillation",
+        shap: "+0.5200", conf: "85.3% (High)" },
+    ],
+  },
+  high_impedance: {
+    label: "UNSTABLE", rfProb: 79.4, xgbProb: 82.1,
+    vsi: 0.83, rocov: 0.45, thermal: 0.61, fimp: 0.40,
+    physics: { msg: " — VSI = 0.830 < 0.85 (IEEE 1159 undervoltage threshold)" },
+    shap: { tau1: 0.47, p1: 0.38, g1: 0.29, g2: 0.22, tau2: 0.14 },
+    recs: [
+      { severity: "CRITICAL", color: "#FF4B4B", feature: "VSI",
+        cause: "Voltage collapse risk — bus voltage below safe margin",
+        action: "Reduce active load at affected bus or switch to alternate feeder",
+        shap: "-0.4700", conf: "79.4% (High)" },
+    ],
+  },
+};
+
+let shapChart = null;
+let currentScenario = 'stable';
+
+function loadScenario(name) {
+  currentScenario = name;
+  document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderMonitor(scenarios[name]);
+  renderExplainer(scenarios[name]);
+}
+
+function renderMonitor(s) {
+  const badge = document.getElementById('status-badge');
+  const isUnstable = s.label === 'UNSTABLE';
+  badge.textContent = isUnstable ? '🔴 UNSTABLE' : '🟢 STABLE';
+  badge.className = 'status-badge ' + (isUnstable ? 'unstable' : 'stable');
+
+  document.getElementById('rf-prob').textContent = s.rfProb.toFixed(1) + '%';
+  document.getElementById('xgb-prob').textContent = s.xgbProb.toFixed(1) + '%';
+  const rfBar = document.getElementById('rf-bar');
+  rfBar.style.width = s.rfProb + '%';
+  rfBar.style.background = s.rfProb > 50 ? 'var(--red)' : 'var(--green)';
+  const xgbBar = document.getElementById('xgb-bar');
+  xgbBar.style.width = s.xgbProb + '%';
+  xgbBar.style.background = s.xgbProb > 50 ? 'var(--red)' : 'var(--green)';
+
+  document.getElementById('vsi-val').textContent = s.vsi.toFixed(3);
+  document.getElementById('rocov-val').textContent = s.rocov.toFixed(3);
+  document.getElementById('thermal-val').textContent = s.thermal.toFixed(3);
+  document.getElementById('fimp-val').textContent = s.fimp.toFixed(2);
+
+  const banner = document.getElementById('physics-banner');
+  if (s.physics) {
+    banner.classList.add('visible');
+    document.getElementById('physics-msg').textContent = s.physics.msg;
+  } else {
+    banner.classList.remove('visible');
+  }
+}
+
+function renderExplainer(s) {
+  // SHAP chart
+  const features = Object.keys(s.shap);
+  const values = Object.values(s.shap);
+  const colors = values.map(v => v > 0 ? 'rgba(255,75,75,0.8)' : 'rgba(75,139,255,0.8)');
+
+  if (shapChart) shapChart.destroy();
+  const ctx = document.getElementById('shap-chart').getContext('2d');
+  shapChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: features,
+      datasets: [{ data: values, backgroundColor: colors, borderRadius: 4 }],
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.06)' },
+          ticks: { color: '#8b90a8' },
+          title: { display: true, text: 'SHAP contribution', color: '#8b90a8' },
+        },
+        y: { ticks: { color: '#e8eaf0' }, grid: { display: false } },
+      },
+    },
+  });
+
+  // Recommendation cards
+  const container = document.getElementById('rec-cards');
+  if (!s.recs || s.recs.length === 0) {
+    container.innerHTML = '<p style="color:var(--muted)">No recommendations — prediction is STABLE.</p>';
+    return;
+  }
+  container.innerHTML = s.recs.map(r => `
+    <div class="rec-card" style="border-left-color: ${r.color}">
+      <div class="severity" style="color:${r.color}">${r.severity}</div>
+      <div class="feature">Primary driver: ${r.feature}</div>
+      <div class="row"><span class="lbl">Cause</span><span class="val">${r.cause}</span></div>
+      <div class="row"><span class="lbl">Action</span><span class="val">${r.action}</span></div>
+      <div class="row"><span class="lbl">SHAP</span><span class="val">${r.shap}</span></div>
+      <div class="row"><span class="lbl">Confidence</span><span class="val">${r.conf}</span></div>
+    </div>
+  `).join('');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', ['monitor','explainer','comparison'][i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+// ── ROC curve (approximate) ───────────────────────────────────────────────
+window.addEventListener('load', () => {
+  renderMonitor(scenarios.stable);
+  renderExplainer(scenarios.stable);
+
+  const rocCtx = document.getElementById('roc-chart').getContext('2d');
+  const fpr = [0, 0.01, 0.03, 0.06, 0.10, 0.20, 0.40, 0.60, 0.80, 1.0];
+  const tprRF = [0, 0.72, 0.88, 0.93, 0.96, 0.975, 0.985, 0.990, 0.995, 1.0];
+  const tprXGB = [0, 0.78, 0.91, 0.95, 0.97, 0.980, 0.988, 0.993, 0.997, 1.0];
+  new Chart(rocCtx, {
+    type: 'line',
+    data: {
+      labels: fpr,
+      datasets: [
+        { label: 'Random Forest (AUC=0.996)', data: tprRF, borderColor: '#4b8bff', fill: false, tension: 0.4, pointRadius: 2 },
+        { label: 'XGBoost (AUC=0.998)', data: tprXGB, borderColor: '#ff4b4b', fill: false, tension: 0.4, pointRadius: 2 },
+        { label: 'Baseline', data: fpr, borderColor: '#555', fill: false, borderDash: [4,4], pointRadius: 0 },
+      ],
+    },
+    options: {
+      plugins: { legend: { labels: { color: '#8b90a8', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#8b90a8' }, grid: { color: 'rgba(255,255,255,0.06)' },
+             title: { display: true, text: 'FPR', color: '#8b90a8' } },
+        y: { ticks: { color: '#8b90a8' }, grid: { color: 'rgba(255,255,255,0.06)' },
+             title: { display: true, text: 'TPR', color: '#8b90a8' } },
+      },
+    },
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+    "venvPath": "d:\\grid_stability_project\\grid_stability",
+    "venv": "venv",
+    "extraPaths": [
+        "d:\\grid_stability_project\\grid_stability"
+    ]
+}

@@ -1,0 +1,30 @@
+# Virtual Environments
+venv/
+env/
+.env/
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE configurations
+.vscode/
+.idea/
+
+# Testing caches
+.pytest_cache/
+
+# Datasets (Download separately as per instructions)
+data/*.csv
+
+# Log files and Temp outputs
+logs/
+*.log
+out.txt
+verify_out.txt
+debug_output.json
+reports/*.pdf
+
+# Model caches (if you prefer not to upload generated models)
+# models/saved/*.pkl

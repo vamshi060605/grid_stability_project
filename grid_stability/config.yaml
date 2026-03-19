@@ -1,0 +1,21 @@
+model:
+  type: "random_forest"
+  n_estimators: 100
+  random_state: 42
+  test_size: 0.2
+
+simulation:
+  network: "case14"
+  n_samples: 500
+  convergence_threshold: 0.90
+
+thresholds:
+  vsi_critical: 0.85
+  vsi_overvoltage: 1.10
+  thermal_critical: 0.95
+  shap_confidence_low: 0.70
+  robustness_max_drop: 0.15
+
+dashboard:
+  history_length: 20
+  auto_refresh_seconds: 5
