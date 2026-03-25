@@ -26,5 +26,37 @@ verify_out.txt
 debug_output.json
 reports/*.pdf
 
+# Temporary debug / sweep / verification outputs
+output.txt
+output_utf8.txt
+sweep.py
+sweep2.py
+sweep_unstable.py
+sweep_out.txt
+sweep_p.txt
+sweep_final_out.txt
+sweep_shap.txt
+sweep_shap2.txt
+sweep_shap2_utf8.txt
+search_out.txt
+search_out_utf8.txt
+search_exact_out.txt
+search_hi_out.txt
+search_hi2_out.txt
+search_hi3_out.txt
+verify_fault_out.txt
+verify_fault_out_utf8.txt
+verify_fault_mapping.py
+verify_final.txt
+verify_final_utf8.txt
+verify_final_v2.txt
+verify_final_v3.txt
+check.py
+check_final.py
+step2.py
+step6.py
+test_faults.py
+
 # Model caches (if you prefer not to upload generated models)
 # models/saved/*.pkl
+

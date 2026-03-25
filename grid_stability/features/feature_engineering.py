@@ -10,6 +10,7 @@ from typing import Tuple
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import joblib
@@ -57,6 +58,30 @@ def compute_physics_features(df: pd.DataFrame) -> pd.DataFrame:
     assert df["RoCoV"].isna().sum() == 0, "RoCoV must have no NaN after first-row drop"
     logger.info("Physics features computed. Shape: %s", df.shape)
     return df
+
+
+def compute_features_from_sim(sim_result: dict) -> dict:
+    """
+    Computes physics features from a single
+    simulate_step() output dict.
+    Used in live monitoring mode.
+    """
+    vsi = sim_result["vm_pu"] / 1.0
+    z = sim_result["vm_pu"] / (
+        sim_result["i_pu"] + 1e-9
+    )
+    thermal = sim_result["loading_pct"] / 100.0
+    prev_vsi = st.session_state.get(
+        "prev_features", {}
+    ).get("VSI", vsi)
+    rocov = abs(vsi - prev_vsi)
+
+    return {
+        "VSI": vsi,
+        "fault_impedance": z,
+        "thermal_stress": thermal,
+        "RoCoV": rocov
+    }
 
 
 # ── UCI dataset loading & preparation ────────────────────────────────────────

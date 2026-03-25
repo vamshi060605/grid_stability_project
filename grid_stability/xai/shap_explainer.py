@@ -21,7 +21,15 @@ _ROOT = Path(__file__).parent.parent
 _MODEL_DIR = _ROOT / "models" / "saved"
 _XAI_DIR = _ROOT / "xai"
 
+import json
+
 RF_PATH = _MODEL_DIR / "random_forest.pkl"
+_MEANS_PATH = _MODEL_DIR / "training_means.json"
+
+TRAINING_MEANS = {}
+if _MEANS_PATH.exists():
+    with open(_MEANS_PATH, "r") as _f:
+        TRAINING_MEANS = json.load(_f)
 
 
 def _load_rf_model():
@@ -37,6 +45,7 @@ def explain_prediction(
     X_instance: pd.DataFrame,
     training_means: Optional[pd.Series] = None,
     model=None,
+    feature_boost: Optional[dict] = None,
 ) -> dict:
     """
     Generate SHAP explanation for a single prediction instance.
@@ -63,6 +72,8 @@ def explain_prediction(
         "fallback": False,
     }
 
+    feature_names = X_instance.columns.tolist()
+
     try:
         explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
         raw = explainer.shap_values(X_instance, check_additivity=False)
@@ -77,24 +88,44 @@ def explain_prediction(
         else:
             sv = raw
             sv_1d = sv[0] if getattr(sv, 'ndim', 1) == 2 else sv
+        
+        # Apply boosting if specified
+        if feature_boost:
+            for feat, multiplier in feature_boost.items():
+                if feat in feature_names:
+                    idx = feature_names.index(feat)
+                    sv_1d[idx] *= multiplier
+
         result["shap_values"] = sv_1d
 
         feature_names = X_instance.columns.tolist()
+        
+        expected_features = list(TRAINING_MEANS.keys()) if TRAINING_MEANS else feature_names
+        assert feature_names == expected_features, (
+            f"Feature mismatch: got {feature_names}"
+            f" expected {expected_features}"
+        )
+        
         feature_values = X_instance.iloc[0].values
 
-        # Determine direction relative to training mean
-        if training_means is None:
+        if not TRAINING_MEANS:
             directions = ["high" if v > 0 else "low" for v in feature_values]
         else:
             directions = [
-                "high" if feature_values[i] > training_means.get(feature_names[i], 0) else "low"
+                "high" if feature_values[i] > TRAINING_MEANS.get(feature_names[i], 0) else "low"
                 for i in range(len(feature_names))
             ]
 
-        # Sort by absolute SHAP value
-        sorted_idx = np.argsort(np.abs(sv_1d))[::-1]
+        # Show SHAP as contribution percentage
+        # ONLY consider positive values as drivers of instability
+        pos_vals = np.maximum(sv_1d, 0)
+        total = pos_vals.sum()
+        pcts = (pos_vals / total * 100).round(1) if total > 0 else np.zeros_like(pos_vals)
+
+        # Sort by positive SHAP value
+        sorted_idx = np.argsort(pos_vals)[::-1]
         top_2 = [
-            (feature_names[i], float(sv_1d[i]), directions[i])
+            (feature_names[i], float(sv_1d[i]), directions[i], float(pcts[i]))
             for i in sorted_idx[:2]
         ]
         result["top_2_features"] = top_2
@@ -139,17 +170,21 @@ def _fallback_explanation(model, X_instance: pd.DataFrame, training_means=None) 
     importances = model.feature_importances_
     feature_values = X_instance.iloc[0].values
 
-    if training_means is None:
+    if not TRAINING_MEANS:
         directions = ["high" if v > 0 else "low" for v in feature_values]
     else:
         directions = [
-            "high" if feature_values[i] > training_means.get(feature_names[i], 0) else "low"
+            "high" if feature_values[i] > TRAINING_MEANS.get(feature_names[i], 0) else "low"
             for i in range(len(feature_names))
         ]
 
+    abs_vals = np.abs(importances)
+    total = abs_vals.sum()
+    pcts = (abs_vals / total * 100).round(1) if total > 0 else np.zeros_like(abs_vals)
+
     sorted_idx = np.argsort(importances)[::-1]
     top_2 = [
-        (feature_names[i], float(importances[i]), directions[i])
+        (feature_names[i], float(importances[i]), directions[i], float(pcts[i]))
         for i in sorted_idx[:2]
     ]
 

@@ -44,3 +44,8 @@ AUTO_REFRESH_SECONDS: int = _d["auto_refresh_seconds"]
 
 # ── Noise levels for robustness tests ────────────────────────────────────────
 ROBUSTNESS_SIGMAS: list = [0.01, 0.05, 0.10, 0.20]
+
+# ── Operator feedback system ─────────────────────────────────────────────────
+FEEDBACK_WEIGHT: int = 10          # Each feedback sample replicated 10x during retrain
+FEEDBACK_BUFFER_MAX: int = 200     # Max feedback samples in rolling buffer
+FEEDBACK_BUFFER_TRIM: int = 50     # Drop oldest N when buffer exceeds max

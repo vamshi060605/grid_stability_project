@@ -41,20 +41,49 @@ RECOMMENDATION_RULES: dict = {
         "action": "Redistribute load or check transformer rating",
         "severity": "MEDIUM",
     },
+    ("tau1", "low"): {
+        "cause": "Voltage collapse risk — bus voltage critically below nominal",
+        "action": "Switch to alternate feeder or reduce active load",
+        "severity": "CRITICAL"
+    },
+    ("tau2", "low"): {
+        "cause": "Voltage collapse risk at node 2 — voltage below safe margin",
+        "action": "Switch to alternate feeder or reduce active load at node 2",
+        "severity": "CRITICAL"
+    },
+    ("p1", "high"): {
+        "cause": "Excess power injection — load surge detected",
+        "action": "Reduce generation at node 1 or shed load",
+        "severity": "MEDIUM"
+    },
+    ("p2", "high"): {
+        "cause": "Excess power injection at producer node 2",
+        "action": "Reduce generation at node 2 or redistribute",
+        "severity": "MEDIUM"
+    },
+    ("g1", "high"): {
+        "cause": "Rapid voltage fluctuation — generator response aggressive",
+        "action": "Activate voltage regulator or reduce injection rate",
+        "severity": "HIGH"
+    },
+    ("g2", "high"): {
+        "cause": "Aggressive gamma response causing oscillation at node 2",
+        "action": "Activate voltage regulator or reduce injection rate",
+        "severity": "HIGH"
+    },
+    ("g1", "low"): {
+        "cause": "High impedance fault — abnormal line resistance detected",
+        "action": "Inspect feeder for insulation failure or partial contact",
+        "severity": "HIGH"
+    },
+    ("g2", "low"): {
+        "cause": "High impedance fault on line 2",
+        "action": "Inspect feeder for partial contact or insulation failure",
+        "severity": "HIGH"
+    },
     ("tau1", "high"): {
         "cause": "Participant response time too slow",
         "action": "Review demand response contract at this node",
-        "severity": "MEDIUM",
-    },
-    # Extended rules for fuller UCI feature coverage
-    ("p1", "high"): {
-        "cause": "Excess power injection at producer node 1",
-        "action": "Curtail generation or activate storage to absorb surplus",
-        "severity": "HIGH",
-    },
-    ("g1", "high"): {
-        "cause": "High gamma coefficient — aggressive producer response",
-        "action": "Dampen price signal for producer 1 to stabilise oscillation",
         "severity": "MEDIUM",
     },
     ("tau2", "high"): {
@@ -72,20 +101,10 @@ RECOMMENDATION_RULES: dict = {
         "action": "Inspect control signal at node 4",
         "severity": "MEDIUM"
     },
-    ("p2", "high"): {
-        "cause": "Excess power injection at producer node 2",
-        "action": "Reduce generation at node 2 or redistribute load",
-        "severity": "HIGH"
-    },
     ("p3", "high"): {
         "cause": "Excess power injection at producer node 3",
         "action": "Reduce generation at node 3 or redistribute load",
         "severity": "MEDIUM"
-    },
-    ("g2", "high"): {
-        "cause": "Aggressive gamma response at node 2 causing oscillation",
-        "action": "Activate voltage regulator or reduce injection rate",
-        "severity": "HIGH"
     },
 }
 
@@ -120,6 +139,7 @@ def _confidence_note(confidence: float, show_action: bool) -> str:
 def generate_recommendation(
     top_features: list,
     feature_values: dict,
+    training_means: dict,
     confidence: float,
 ) -> list:
     """
@@ -128,16 +148,14 @@ def generate_recommendation(
     This is the academic novelty: maps XAI output to actionable operator guidance.
 
     Args:
-        top_features: list of (feature_name, shap_value, direction) from shap_explainer.
+        top_features: list of (feature_name, shap_value, old_direction, pct) from shap_explainer.
         feature_values: dict of {feature_name: raw_value} for the current instance.
+        training_means: dict of feature training means for dynamic direction thresholds.
         confidence: model predict_proba score for the unstable class (0–1).
 
     Returns:
-        List of recommendation dicts, each containing:
-          [feature, shap_contribution, cause, action, severity, confidence_note]
-        Returns [{"state": "UNCERTAIN"}] if confidence ≈ 0.5.
+        List of recommendation dicts.
     """
-    # Special case: model uncertainty — do not generate recommendation
     if abs(confidence - 0.5) < 0.02:
         logger.info("Model uncertainty detected (confidence=%.3f) — returning UNCERTAIN", confidence)
         return [{"state": _UNCERTAIN_SENTINEL, "confidence": confidence}]
@@ -145,22 +163,32 @@ def generate_recommendation(
     show_action = confidence >= SHAP_CONFIDENCE_LOW
     recommendations = []
 
-    for feature_name, shap_value, direction in top_features:
-        key = (feature_name, direction)
-        rule = RECOMMENDATION_RULES.get(key)
+    for feature_name, shap_value, _, pct in top_features:
+        feat_val = feature_values.get(feature_name, 0.0)
+        mean_val = training_means.get(feature_name, 0.5)
+        
+        direction = "high" if feat_val > mean_val else "low"
+        rule_key = (feature_name, direction)
+        rule = RECOMMENDATION_RULES.get(rule_key)
 
         if rule is None:
             logger.warning(
-                "No rule found for (%s, %s) — returning fallback. "
-                "Raw value: %s",
-                feature_name, direction,
-                feature_values.get(feature_name, "N/A"),
+                f"No rule for ({feature_name}, {direction})"
+                f" — feat_val={feat_val:.3f}"
+                f" mean={mean_val:.3f}"
             )
             rule = _FALLBACK_RULE
+            
+        logger.debug(
+            f"Recommendation: feat={feature_name} "
+            f"val={feat_val:.3f} mean={mean_val:.3f} "
+            f"direction={direction} rule={rule_key}"
+        )
 
         rec = {
             "feature": feature_name,
             "shap_contribution": round(float(shap_value), 4),
+            "contribution_pct": pct,
             "cause": rule["cause"],
             "action": rule["action"] if show_action else "Confidence too low — verify manually",
             "severity": rule["severity"],
