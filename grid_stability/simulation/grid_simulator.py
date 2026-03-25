@@ -6,6 +6,7 @@ Fault types: normal, line_outage, load_surge, generator_trip, high_impedance.
 """
 import logging
 import random
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -199,6 +200,49 @@ def run_single_fault(fault_type: str, random_state: int = RANDOM_STATE) -> Optio
         return None
 
     return pd.DataFrame([row])
+
+
+def simulate_step(
+    base_network: str,
+    noise_level: float = 0.02,
+    fault_type: str = "normal"
+) -> dict | None:
+    """
+    Runs a single power flow step with optional
+    Gaussian noise on load and generation.
+    Returns dict with vm_pu, loading_pct, i_pu,
+    fault_type, timestamp.
+    Returns None if power flow diverges.
+    """
+    net = getattr(pn, base_network)()
+
+    # Apply Gaussian noise to loads
+    for idx in net.load.index:
+        net.load.at[idx, 'p_mw'] *= (1 + np.random.normal(0, noise_level))
+        net.load.at[idx, 'q_mvar'] *= (1 + np.random.normal(0, noise_level))
+
+    # Apply fault if not normal
+    if fault_type != "normal":
+        rng = random.Random()
+        _inject_fault(net, fault_type, rng)
+
+    try:
+        pp.runpp(net, verbose=False)
+    except Exception:
+        logger.warning(f"Power flow diverged for {fault_type}")
+        return None
+
+    vm_pu = float(net.res_bus['vm_pu'].mean())
+    loading_pct = float(net.res_line['loading_percent'].mean())
+    i_pu = float(net.res_line['i_from_ka'].mean())
+
+    return {
+        "vm_pu": vm_pu,
+        "loading_pct": loading_pct,
+        "i_pu": i_pu,
+        "fault_type": fault_type,
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 if __name__ == "__main__":

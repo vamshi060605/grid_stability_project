@@ -117,3 +117,130 @@ class TestRecommendationStructure:
         top_features = [("VSI", -0.42, "low"), ("RoCoV", 0.38, "high")]
         recs = generate_recommendation(top_features, {"VSI": 0.7, "RoCoV": 0.9}, 0.91)
         assert len(recs) == 2
+
+
+# ── Operator Feedback Tests ──────────────────────────────────────────────────
+
+
+import json
+import shutil
+
+import joblib
+import numpy as np
+import pandas as pd
+
+from models.train import update_model_with_feedback, _load_feedback_log, _save_feedback_log
+from utils.thresholds import FEEDBACK_BUFFER_MAX
+
+
+def _setup_feedback_env(tmp_path):
+    """Copy model, scaler, and create empty feedback log in tmp_path."""
+    _ROOT = Path(__file__).parent.parent
+    model_src = _ROOT / "models" / "saved" / "random_forest.pkl"
+    scaler_src = _ROOT / "models" / "saved" / "scaler.pkl"
+
+    model_dst = tmp_path / "random_forest.pkl"
+    scaler_dst = tmp_path / "scaler.pkl"
+    log_dst = tmp_path / "feedback_log.json"
+
+    shutil.copy(model_src, model_dst)
+    shutil.copy(scaler_src, scaler_dst)
+
+    # Create empty feedback log
+    empty_log = {
+        "samples": [],
+        "total_confirmations": 0,
+        "total_false_alarms": 0,
+        "last_retrain_accuracy": None,
+    }
+    log_dst.write_text(json.dumps(empty_log, indent=2), encoding="utf-8")
+
+    # Build a sample UCI-space feature instance (unscaled)
+    feature_names = ["tau1", "tau2", "tau3", "tau4", "p1", "p2", "p3", "p4",
+                     "g1", "g2", "g3", "g4"]
+    sample_vals = [5.74, 5.76, 5.74, 5.74, 3.76, -1.25, -1.25, -1.26,
+                   0.57, 0.57, 0.57, 0.57]
+    X_instance = pd.DataFrame([sample_vals], columns=feature_names)
+
+    return model_dst, scaler_dst, log_dst, X_instance
+
+
+class TestOperatorFeedback:
+    def test_fix_it_maintains_accuracy(self, tmp_path):
+        """Fix It with correct unstable instance should maintain or improve accuracy."""
+        model_dst, scaler_dst, log_dst, X_instance = _setup_feedback_env(tmp_path)
+        result = update_model_with_feedback(
+            model_path=model_dst,
+            X_instance=X_instance,
+            confirmed_label=1,
+            scaler_path=scaler_dst,
+            feedback_log_path=log_dst,
+        )
+        # Reinforcing correct prediction should not significantly hurt accuracy
+        assert result["new_accuracy"] >= result["old_accuracy"] - 0.02
+
+    def test_false_alarm_adjusts_model(self, tmp_path):
+        """False Alarm with incorrect prediction should adjust model without error."""
+        model_dst, scaler_dst, log_dst, X_instance = _setup_feedback_env(tmp_path)
+        result = update_model_with_feedback(
+            model_path=model_dst,
+            X_instance=X_instance,
+            confirmed_label=0,
+            scaler_path=scaler_dst,
+            feedback_log_path=log_dst,
+        )
+        assert "new_accuracy" in result
+        assert "delta" in result
+        assert result["samples_added"] == 1
+
+    def test_feedback_buffer_max_size(self, tmp_path):
+        """Feedback buffer should respect FEEDBACK_BUFFER_MAX (200)."""
+        model_dst, scaler_dst, log_dst, X_instance = _setup_feedback_env(tmp_path)
+
+        # Pre-fill log with 210 dummy samples
+        log = _load_feedback_log(log_dst)
+        for i in range(210):
+            log["samples"].append({
+                "features": {f"f{j}": float(j) for j in range(12)},
+                "label": 1,
+                "verdict": "CONFIRMED",
+                "timestamp": f"2026-01-01T00:00:{i:02d}",
+                "weight": 10,
+            })
+        _save_feedback_log(log_dst, log)
+
+        # One more feedback call should trigger trim
+        result = update_model_with_feedback(
+            model_path=model_dst,
+            X_instance=X_instance,
+            confirmed_label=1,
+            scaler_path=scaler_dst,
+            feedback_log_path=log_dst,
+        )
+        log_after = _load_feedback_log(log_dst)
+        assert len(log_after["samples"]) <= FEEDBACK_BUFFER_MAX
+
+    def test_feedback_log_correctly_updated(self, tmp_path):
+        """feedback_log.json should have correct structure after one call."""
+        model_dst, scaler_dst, log_dst, X_instance = _setup_feedback_env(tmp_path)
+        update_model_with_feedback(
+            model_path=model_dst,
+            X_instance=X_instance,
+            confirmed_label=1,
+            scaler_path=scaler_dst,
+            feedback_log_path=log_dst,
+        )
+        log = json.loads(log_dst.read_text(encoding="utf-8"))
+
+        assert log["total_confirmations"] == 1
+        assert log["total_false_alarms"] == 0
+        assert log["last_retrain_accuracy"] is not None
+        assert len(log["samples"]) == 1
+
+        sample = log["samples"][0]
+        assert "features" in sample
+        assert "label" in sample
+        assert sample["label"] == 1
+        assert sample["verdict"] == "CONFIRMED"
+        assert "timestamp" in sample
+        assert sample["weight"] == 10
