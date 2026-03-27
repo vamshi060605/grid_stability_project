@@ -60,3 +60,7 @@ test_faults.py
 # Model caches (if you prefer not to upload generated models)
 # models/saved/*.pkl
 
+
+#bak
+app.py.bak
+
