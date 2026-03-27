@@ -19,9 +19,16 @@ from xai.recommendation_engine import (
 
 def _gen(feature, direction, confidence=0.90, shap_val=0.35):
     """Helper: call generate_recommendation with a single feature."""
-    top_features = [(feature, shap_val, direction)]
-    feature_values = {feature: 0.5}
-    return generate_recommendation(top_features, feature_values, confidence)
+    top_features = [(feature, shap_val, direction, 50.0)]
+    # Set values so generate_recommendation() computes the desired direction
+    if direction == "high":
+        feature_values = {feature: 0.8}
+        training_means = {feature: 0.2}
+    else:
+        feature_values = {feature: 0.2}
+        training_means = {feature: 0.8}
+    return generate_recommendation(top_features, feature_values, training_means, confidence)
+
 
 
 class TestRuleFiring:
@@ -114,8 +121,9 @@ class TestRecommendationStructure:
         assert isinstance(recs[0]["shap_contribution"], float)
 
     def test_multiple_features_produce_multiple_recs(self):
-        top_features = [("VSI", -0.42, "low"), ("RoCoV", 0.38, "high")]
-        recs = generate_recommendation(top_features, {"VSI": 0.7, "RoCoV": 0.9}, 0.91)
+        top_features = [("VSI", -0.42, "low", 55.0), ("RoCoV", 0.38, "high", 45.0)]
+        training_means = {"VSI": 1.0, "RoCoV": 0.05}
+        recs = generate_recommendation(top_features, {"VSI": 0.7, "RoCoV": 0.9}, training_means, 0.91)
         assert len(recs) == 2
 
 

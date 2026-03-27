@@ -137,9 +137,23 @@ def explain_prediction(
             if isinstance(expected_val, (list, np.ndarray)):
                 expected_val = expected_val[1]
             force = shap.force_plot(expected_val, sv_1d, X_instance.iloc[0])
-            result["force_plot_html"] = shap.save_html(None, force)
+            force_plot_html = shap.save_html(None, force)
+            result["force_plot_html"] = force_plot_html
+
+            # Save force plot to disk
+            if force_plot_html:
+                import os
+                from datetime import datetime as _dt
+                _plot_dir = str(_ROOT / "reports" / "shap_plots")
+                os.makedirs(_plot_dir, exist_ok=True)
+                _ts = _dt.now().strftime("%Y%m%d_%H%M%S_%f")
+                _plot_path = os.path.join(_plot_dir, f"force_plot_{_ts}.html")
+                with open(_plot_path, "w", encoding="utf-8") as _fp:
+                    _fp.write(force_plot_html)
+                logger.info("Force plot saved to %s", _plot_path)
         except Exception as plot_exc:  # pylint: disable=broad-except
             logger.debug("Force plot generation skipped: %s", plot_exc)
+
 
         logger.info("SHAP explanation generated for instance.")
 

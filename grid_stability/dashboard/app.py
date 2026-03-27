@@ -16,18 +16,28 @@ _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import json
+import os
+
 import joblib
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import yaml
 
 from utils.thresholds import (
     VSI_CRITICAL, VSI_OVERVOLTAGE, THERMAL_CRITICAL,
     SHAP_CONFIDENCE_LOW, SHAP_CONFIDENCE_HIGH, HISTORY_LENGTH,
 )
+from stability_metrics import compute_stability_margin, compute_fsi
 
 logger = logging.getLogger(__name__)
+
+# ── Load config for derived metrics ───────────────────────────────────────────
+_CONFIG_PATH = _ROOT / "config.yaml"
+with open(_CONFIG_PATH, "r") as _cfg_f:
+    _APP_CONFIG = yaml.safe_load(_cfg_f)
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -68,6 +78,16 @@ def load_scaler():
         st.error("⚠️ Scaler not found. Run: `python models/train.py`")
         st.stop()
     return joblib.load(SCALER_PATH)
+
+
+@st.cache_resource
+def load_shap_weights():
+    """Load SHAP-derived feature weights for FSI computation."""
+    weights_path = _MODEL_DIR / "shap_weights.json"
+    if weights_path.exists():
+        with open(weights_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return None
 
 
 @st.cache_data
@@ -284,16 +304,22 @@ def shap_bar_chart(explanation: dict, feature_names: list) -> go.Figure:
     vals = [float(sv[i]) for i in idx]
     colors = ["#FF4B4B" if v > 0 else "#4B8BFF" for v in vals]
 
+    # Compute contribution % for bar labels
+    abs_vals = [abs(v) for v in vals]
+    total_abs = sum(abs_vals)
+    pcts = [(a / total_abs * 100) if total_abs > 0 else 0.0 for a in abs_vals]
+    bar_text = [f"{v:+.3f} ({p:.1f}%)" for v, p in zip(vals, pcts)]
+
     fig = go.Figure(go.Bar(
         x=vals, y=feats, orientation="h",
         marker_color=colors,
-        text=[f"{v:+.3f}" for v in vals],
+        text=bar_text,
         textposition="outside",
     ))
     label = "SHAP Values (Feature Importances)" if explanation.get("fallback") else "SHAP Values"
     fig.update_layout(
         title=label, height=300,
-        margin=dict(t=40, b=10, l=10, r=60),
+        margin=dict(t=40, b=10, l=10, r=80),
         xaxis_title="SHAP contribution",
     )
     return fig
@@ -327,6 +353,7 @@ def render_recommendation_card(rec: dict) -> None:
             <b>SHAP contribution:</b> {rec.get('shap_contribution', 0):+.4f}<br>
             <b>Model confidence:</b> {rec.get('confidence_pct', 0):.1f}%
             &nbsp;({rec.get('confidence_note', '—')})
+            {'<p style="color:#888; font-size:0.8em; margin:4px 0 0 0;">' + rec.get('feature', '') + ' drives ' + str(round(rec.get('contribution_pct', 0), 1)) + '% of this instability prediction</p>' if rec.get('contribution_pct') is not None else ''}
         </div>
         """,
         unsafe_allow_html=True,
@@ -613,6 +640,74 @@ def main():
                 st.metric("XGB Confidence (unstable)", f"{xgb_prob*100:.1f}%")
             with col_gauge:
                 st.plotly_chart(confidence_gauge(rf_prob), use_container_width=True)
+
+            # ── Stability Margin Score gauge ──────────────────────────────────
+            _rocov_max = _APP_CONFIG.get("rocov_max", 0.05)
+            stability_margin = compute_stability_margin(
+                vsi=vsi_val, rocov=rocov_val,
+                thermal_stress=thermal_val, rocov_max=_rocov_max,
+            )
+            margin_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=round(stability_margin, 3),
+                title={"text": "Stability Margin Score", "font": {"size": 14}},
+                gauge={
+                    "axis": {"range": [0, 1]},
+                    "steps": [
+                        {"range": [0.0, 0.2], "color": "#d32f2f"},
+                        {"range": [0.2, 0.4], "color": "#f57c00"},
+                        {"range": [0.4, 0.6], "color": "#fbc02d"},
+                        {"range": [0.6, 0.8], "color": "#aed581"},
+                        {"range": [0.8, 1.0], "color": "#388e3c"},
+                    ],
+                    "bar": {"color": "#1565c0"},
+                    "threshold": {"line": {"color": "black", "width": 4}, "value": stability_margin},
+                },
+            ))
+            margin_gauge.update_layout(height=250, margin=dict(t=40, b=10, l=10, r=10))
+            _band_labels = ["CRITICAL", "UNSTABLE", "MARGINAL", "STABLE", "VERY STABLE"]
+            _band_idx = min(int(stability_margin / 0.2), 4)
+            col_margin, col_fsi = st.columns(2)
+            with col_margin:
+                st.plotly_chart(margin_gauge, use_container_width=True)
+                st.caption(f"Stability Band: **{_band_labels[_band_idx]}**")
+
+            # ── Fault Severity Index (FSI) gauge ─────────────────────────────
+            _shap_weights = load_shap_weights()
+            _feature_bounds = _APP_CONFIG.get("feature_bounds", {})
+            if _shap_weights is not None:
+                _fsi_vector = {
+                    "VSI": vsi_val,
+                    "RoCoV": rocov_val,
+                    "thermal_stress": thermal_val,
+                    "fault_impedance": fault_imp_val,
+                }
+                _fsi_score = compute_fsi(_fsi_vector, _shap_weights, _feature_bounds)
+                fsi_gauge = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=round(_fsi_score, 3),
+                    title={"text": "Fault Severity Index (FSI)", "font": {"size": 14}},
+                    gauge={
+                        "axis": {"range": [0, 1]},
+                        "steps": [
+                            {"range": [0.0, 0.2], "color": "#388e3c"},
+                            {"range": [0.2, 0.4], "color": "#aed581"},
+                            {"range": [0.4, 0.6], "color": "#fbc02d"},
+                            {"range": [0.6, 0.8], "color": "#f57c00"},
+                            {"range": [0.8, 1.0], "color": "#d32f2f"},
+                        ],
+                        "bar": {"color": "#6a1b9a"},
+                    },
+                ))
+                fsi_gauge.update_layout(height=250, margin=dict(t=40, b=10, l=10, r=10))
+                _fsi_labels = ["NEGLIGIBLE", "LOW", "MODERATE", "HIGH", "CRITICAL"]
+                _fsi_idx = min(int(_fsi_score / 0.2), 4)
+                with col_fsi:
+                    st.plotly_chart(fsi_gauge, use_container_width=True)
+                    st.caption(f"Severity Band: **{_fsi_labels[_fsi_idx]}**")
+            else:
+                with col_fsi:
+                    st.info("FSI unavailable — run `python scripts/compute_shap_weights.py`")
 
         st.markdown("---")
         
