@@ -115,3 +115,23 @@ class TestThermalStress:
         result = compute_physics_features(df)
         assert (result["thermal_stress"] >= 0).all()
         assert (result["thermal_stress"] <= 1.0).all()
+
+
+def test_fault_vector_diversity():
+    """Assert all 4 physics features are statistically distinct across fault types (p < 0.05)."""
+    from scipy.stats import f_oneway
+    from simulation.grid_simulator import run_simulations
+
+    # Generate 250 samples (50 per fault type, round-robin in run_simulations)
+    df_raw = run_simulations(n_samples=250, random_state=42)
+    df = compute_physics_features(df_raw)
+
+    features = ["VSI", "RoCoV", "thermal_stress", "fault_impedance"]
+    fault_types = df["fault_type"].unique()
+
+    for feat in features:
+        samples = [df.loc[df["fault_type"] == ft, feat].values for ft in fault_types]
+        samples = [s for s in samples if len(s) >= 2]
+        assert len(samples) >= 2, f"Not enough fault groups with data for {feat}"
+        _, p = f_oneway(*samples)
+        assert p < 0.05, f"{feat} not statistically diverse across fault types (p={p:.4f})"

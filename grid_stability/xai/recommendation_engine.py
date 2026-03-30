@@ -9,7 +9,6 @@ actions. This bridges the gap between XAI and operator decision support.
 """
 import logging
 from pathlib import Path
-from typing import Optional
 
 from utils.thresholds import SHAP_CONFIDENCE_LOW, SHAP_CONFIDENCE_HIGH
 

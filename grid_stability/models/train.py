@@ -104,7 +104,6 @@ if __name__ == "__main__":
 import json
 from datetime import datetime, timezone
 
-import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score
 

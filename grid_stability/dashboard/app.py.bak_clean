@@ -65,7 +65,7 @@ SCALER_PATH = _MODEL_DIR / "scaler.pkl"
 def load_models():
     """Load RF and XGB models once. Returns (rf, xgb) or raises clear error."""
     if not RF_PATH.exists() or not XGB_PATH.exists():
-        st.error("System is not ready. Please contact the administrator.")
+        st.error("⚠️ Model files not found. Run: `python models/train.py`")
         st.stop()
     return joblib.load(RF_PATH), joblib.load(XGB_PATH)
 
@@ -74,7 +74,7 @@ def load_models():
 def load_scaler():
     """Load fitted scaler once."""
     if not SCALER_PATH.exists():
-        st.error("System is not ready. Please contact the administrator.")
+        st.error("⚠️ Scaler not found. Run: `python models/train.py`")
         st.stop()
     return joblib.load(SCALER_PATH)
 
@@ -650,8 +650,8 @@ def main():
                     st.error(f"## 🔴 UNSTABLE")
                 else:
                     st.success(f"## 🟢 STABLE")
-                st.metric("Primary Model Confidence", f"{rf_prob*100:.1f}%")
-                st.metric("Secondary Model Confidence", f"{xgb_prob*100:.1f}%")
+                st.metric("RF Confidence (unstable)", f"{rf_prob*100:.1f}%")
+                st.metric("XGB Confidence (unstable)", f"{xgb_prob*100:.1f}%")
             with col_gauge:
                 st.plotly_chart(confidence_gauge(rf_prob), use_container_width=True)
 
@@ -721,7 +721,7 @@ def main():
                     st.caption(f"Severity Band: **{_fsi_labels[_fsi_idx]}**")
             else:
                 with col_fsi:
-                    st.info("Severity index is currently unavailable.")
+                    st.info("FSI unavailable — run `python scripts/compute_shap_weights.py`")
 
         st.markdown("---")
         
@@ -771,10 +771,10 @@ def main():
     # ── PANEL 2: Fault Explainer ──────────────────────────────────────────────
     with tab2:
         pred_info = st.session_state.last_prediction
-        if not st.session_state.user_has_interacted or pred_info is None or pred_info["label"] == "STABLE":
-            st.info("💡 No fault detected yet. Go to the **Live Monitor** tab, "
-                    "inject a fault using the buttons on the left, and return "
-                     "here to see the AI explanation and corrective actions.")
+        if not st.session_state.user_has_interacted:
+            pass # Panel hidden completely as per requirements
+        elif pred_info is None or pred_info["label"] == "STABLE":
+            st.info("Fault Explainer is active only when the prediction is UNSTABLE.")
         else:
             st.subheader("🔍 SHAP Feature Contribution")
             explanation, recs = st.session_state.last_explanation or (None, [])
@@ -782,7 +782,7 @@ def main():
             if explanation is None:
                 st.warning("⚠️ SHAP unavailable — showing feature importance instead.")
             elif explanation.get("fallback"):
-                st.warning("Detailed explanation unavailable — showing simplified feature importance instead.")
+                st.warning("⚠️ SHAP memory error — showing RF feature importances as fallback.")
 
             if explanation is not None:
                 chart = shap_bar_chart(explanation, feature_names)
