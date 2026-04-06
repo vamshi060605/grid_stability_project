@@ -365,14 +365,30 @@ def render_recommendation_card(rec: dict) -> None:
 # ── Fault injection buttons ───────────────────────────────────────────────────
 
 def inject_fault(fault_type: str) -> dict | None:
-    """Return fixed feature signatures — physically distinct per fault type."""
+    """Return hardcoded feature signatures specifically calibrated for SHAP."""
+    import numpy as np
     SIGNATURES = {
-        "line_outage":     {"vsi": 0.81, "rocov": 0.038, "thermal": 0.72, "fault_imp": 8.5},
-        "load_surge":      {"vsi": 0.87, "rocov": 0.025, "thermal": 0.94, "fault_imp": 22.0},
-        "generator_trip":  {"vsi": 0.74, "rocov": 0.048, "thermal": 0.65, "fault_imp": 12.0},
-        "high_impedance":  {"vsi": 0.91, "rocov": 0.012, "thermal": 0.45, "fault_imp": 3.8},
+        "line_outage": {"VSI": (0.58, 0.72), "RoCoV": (0.65, 0.85), "thermal_stress": (0.50, 0.68), "fault_impedance": (0.80, 1.50)},
+        "load_surge": {"VSI": (0.76, 0.86), "RoCoV": (0.35, 0.55), "thermal_stress": (0.86, 0.97), "fault_impedance": (2.50, 4.00)},
+        "generator_trip": {"VSI": (0.63, 0.76), "RoCoV": (0.75, 0.92), "thermal_stress": (0.45, 0.62), "fault_impedance": (1.00, 2.20)},
+        "high_impedance": {"VSI": (0.83, 0.91), "RoCoV": (0.08, 0.22), "thermal_stress": (0.28, 0.48), "fault_impedance": (8.50, 12.00)},
     }
-    return SIGNATURES.get(fault_type)
+    sig = SIGNATURES.get(fault_type)
+    if not sig:
+        return None
+        
+    features = {}
+    for feat, (low, high) in sig.items():
+        base = np.random.uniform(low, high)
+        noise = np.random.normal(0, 0.01)
+        features[feat] = round(float(np.clip(base + noise, low * 0.95, high * 1.05)), 4)
+        
+    return {
+        "vsi": features["VSI"],
+        "rocov": features["RoCoV"],
+        "thermal": features["thermal_stress"],
+        "fault_imp": features["fault_impedance"],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -411,10 +427,6 @@ def main():
     
     if monitoring_mode == "Live Monitor":
         from streamlit_autorefresh import st_autorefresh
-
-        if "live_has_started" not in st.session_state:
-            st.session_state.live_has_started = False
-
         st.sidebar.subheader("📡 Live Configuration")
         speed_selection = st.sidebar.select_slider(
             "Refresh interval",
@@ -491,14 +503,12 @@ def main():
             injected = inject_fault(ftype)
             if injected:
                 st.session_state.user_has_interacted = True
-                st.session_state.active_fault = ftype
                 st.session_state.vsi_val = float(injected["vsi"])
                 st.session_state.rocov_val = float(min(injected["rocov"], 1.0))
                 st.session_state.thermal_val = float(min(injected["thermal"], 1.0))
                 st.session_state.fault_imp_val = float(min(injected["fault_imp"], 10.0))
                 st.session_state.manual_fault_msg = ("success", f"✓ {flabel} injected")
                 st.session_state.feedback_given = False
-                st.session_state.last_explanation = None
             else:
                 st.session_state.manual_fault_msg = ("warning", "Simulation diverged — try again.")
 
@@ -560,23 +570,7 @@ def main():
         rocov_val = features_dict["RoCoV"]
         thermal_val = features_dict["thermal_stress"]
         fault_imp_val = features_dict["fault_impedance"]
-
-        # Mark live monitor as started after first successful reading
-        if not st.session_state.live_has_started:
-            st.session_state.live_has_started = True
-            # First tick: show stable waiting state, skip prediction
-            st.info("📡 Live Monitor is running — waiting for first grid reading...")
-            st.session_state.history.append({
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
-                "VSI": round(vsi_val, 3),
-                "RoCoV": round(float(rocov_val), 3),
-                "thermal": round(thermal_val, 3),
-                "prediction": "STABLE",
-                "confidence": 0.05,
-                "top_severity": "N/A",
-            })
-            st.stop()
-
+        
         override = physics_check(vsi_val, thermal_val)
         if override:
             st.warning(f"⚠️ **Physics rule override**\n\nRule: **{override['rule']}** → {override['msg']}")
