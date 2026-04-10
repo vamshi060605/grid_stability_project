@@ -62,5 +62,5 @@ test_faults.py
 
 
 #bak
-app.py.bak
-
+*.bak
+*.bak_*

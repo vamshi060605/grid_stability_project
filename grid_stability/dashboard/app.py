@@ -398,6 +398,8 @@ def main():
         st.session_state.active_fault = "normal"
     if "fault_steps_remaining" not in st.session_state:
         st.session_state.fault_steps_remaining = 0
+    if "recovery_ticks_remaining" not in st.session_state:
+        st.session_state.recovery_ticks_remaining = 0
 
     st.sidebar.header("🕹️ Interaction Mode")
     monitoring_mode = st.sidebar.radio(
@@ -428,16 +430,24 @@ def main():
             ["None", "Line Outage", "Load Surge", "Generator Trip", "Hi-Z Fault"]
         )
         
-        if live_fault != "None" and live_fault != st.session_state.get("_last_live_fault", "None"):
-            fault_map = {
-                "Line Outage": "line_outage",
-                "Load Surge": "load_surge",
-                "Generator Trip": "generator_trip",
-                "Hi-Z Fault": "high_impedance",
-            }
-            st.session_state.active_fault = fault_map[live_fault]
-            st.session_state.fault_steps_remaining = 5
-            st.session_state.user_has_interacted = True
+        _prev_live_fault = st.session_state.get("_last_live_fault", "None")
+        if live_fault != _prev_live_fault:
+            if live_fault == "None":
+                # User cleared the fault — stop injection and begin recovery
+                st.session_state.active_fault = "normal"
+                st.session_state.fault_steps_remaining = 0
+                st.session_state.recovery_ticks_remaining = 3
+            else:
+                fault_map = {
+                    "Line Outage": "line_outage",
+                    "Load Surge": "load_surge",
+                    "Generator Trip": "generator_trip",
+                    "Hi-Z Fault": "high_impedance",
+                }
+                st.session_state.active_fault = fault_map[live_fault]
+                st.session_state.fault_steps_remaining = 5
+                st.session_state.recovery_ticks_remaining = 0
+                st.session_state.user_has_interacted = True
         st.session_state._last_live_fault = live_fault
         
         interval_ms = {"Slow (5s)": 5000, "Normal (3s)": 3000, "Fast (1s)": 1000}[speed_selection]
@@ -590,8 +600,33 @@ def main():
     
     label, rf_prob, xgb_prob = "STABLE", 0.0, 0.0
     explanation, recs, top_severity = None, [], "N/A"
+    skip_panel2 = False
     
-    if override is None and X_df is not None:
+    # ── Recovery logic: gradual transition after fault is cleared ─────────
+    if monitoring_mode == "Live Monitor" and st.session_state.recovery_ticks_remaining > 0:
+        ticks_left = st.session_state.recovery_ticks_remaining
+
+        # Interpolate confidence DOWN toward stable over 3 ticks
+        # tick 3 remaining → ~60% unstable confidence (still high)
+        # tick 2 remaining → ~35% unstable confidence (dropping)
+        # tick 1 remaining → ~15% unstable confidence (almost stable)
+        recovery_confidence = (ticks_left / 3.0) * 0.55
+
+        label = "RECOVERING" if recovery_confidence > 0.30 else "STABLE"
+        rf_prob = recovery_confidence
+        xgb_prob = recovery_confidence
+
+        # Show a distinct banner during recovery
+        st.info("🔄 Fault cleared — grid recovering... "
+                f"({ticks_left} tick{'s' if ticks_left > 1 else ''} remaining)")
+
+        # Decrement counter
+        st.session_state.recovery_ticks_remaining -= 1
+
+        # Hide Panel 2 during recovery (no SHAP needed)
+        skip_panel2 = True
+
+    elif override is None and X_df is not None:
         af = st.session_state.get("active_fault", "normal")
         if not st.session_state.user_has_interacted:
             label, rf_prob, xgb_prob = "STABLE", 0.05, 0.05
@@ -602,7 +637,7 @@ def main():
             
         st.session_state.last_prediction = {"label": label, "rf_prob": rf_prob, "xgb_prob": xgb_prob, "X_df": X_df}
         
-        if label == "UNSTABLE":
+        if label == "UNSTABLE" and not skip_panel2:
             # Boost target features based on active fault
             boost = {}
             if af == "line_outage": boost = {"tau1": 10.0, "tau2": 10.0}
@@ -641,6 +676,8 @@ def main():
         
         if not st.session_state.user_has_interacted:
             st.info("ℹ️ Grid is stable at default parameters — inject a fault or adjust sliders to test detection.")
+        elif label == "RECOVERING":
+            st.warning("🔄 Grid is recovering from fault — stabilising...")
         elif label == "STABLE":
             st.success("✅ Grid is operating normally. No faults detected.")
         else:
@@ -654,6 +691,8 @@ def main():
             with col_pred:
                 if label == "UNSTABLE":
                     st.error(f"## 🔴 UNSTABLE")
+                elif label == "RECOVERING":
+                    st.warning(f"## 🟡 RECOVERING")
                 else:
                     st.success(f"## 🟢 STABLE")
                 st.metric("Primary Model Confidence", f"{rf_prob*100:.1f}%")
@@ -777,7 +816,7 @@ def main():
     # ── PANEL 2: Fault Explainer ──────────────────────────────────────────────
     with tab2:
         pred_info = st.session_state.last_prediction
-        if not st.session_state.user_has_interacted or pred_info is None or pred_info["label"] == "STABLE":
+        if skip_panel2 or not st.session_state.user_has_interacted or pred_info is None or pred_info["label"] in ("STABLE", "RECOVERING"):
             st.info("💡 No fault detected yet. Go to the **Live Monitor** tab, "
                     "inject a fault using the buttons on the left, and return "
                      "here to see the AI explanation and corrective actions.")
